@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>艾維排班</title>
+  <meta name="theme-color" content="#2d3748">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="艾維排班">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icons/icon-192.png">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main id="auth-view" class="auth-shell">
+    <section class="auth-card">
+      <div class="brand-mark">IVY</div>
+      <h1>艾維排班</h1>
+      <p>員工排班、請假與主管審核</p>
+      <form id="login-form">
+        <label>電子郵件<input id="login-email" type="email" autocomplete="email" required placeholder="name@company.com"></label>
+        <label>密碼<input id="login-password" type="password" autocomplete="current-password" required minlength="6" placeholder="••••••••"></label>
+        <button class="btn primary" type="submit">登入</button>
+      </form>
+      <div id="auth-message" class="message"></div>
+      <p class="auth-hint">帳號由主管建立。第一次上線請先完成 Supabase 設定。</p>
+    </section>
+  </main>
+
+  <main id="app-view" class="app-shell hidden">
+    <header class="app-header">
+      <div>
+        <div class="eyebrow" id="role-label">艾維園藝</div>
+        <div class="app-title" id="app-title">排班小管家</div>
+      </div>
+      <button id="logout-btn" class="ghost-btn">登出</button>
+    </header>
+    <section id="app-body" class="app-body"></section>
+    <nav id="bottom-nav" class="bottom-nav"></nav>
+  </main>
+
+  <div id="modal-root"></div>
+  <div id="toast" class="toast"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="./config.js"></script>
+  <script src="./app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => navigator.serviceWorker.register('./service-worker.js'));
+    }
+  </script>
+</body>
+</html>
