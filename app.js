@@ -7,7 +7,70 @@ const iso=d=>{let y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day
 const addMonths=(d,n)=>new Date(d.getFullYear(),d.getMonth()+n,1), monthKey=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`, viewMonth=()=>addMonths(new Date(),S.monthOffset);
 const st=t=>t?.slice(0,5)||'', toast=m=>{let x=$('toast');x.textContent=m;x.classList.add('show');setTimeout(()=>x.classList.remove('show'),2600)};
 function authMsg(m){$('auth-message').textContent=m||''} function showAuth(){$('auth-view').classList.remove('hidden');$('app-view').classList.add('hidden')} function showApp(){$('auth-view').classList.add('hidden');$('app-view').classList.remove('hidden')}
-async function init(){if(!configured){showAuth();return authMsg('請先設定 config.js 與 Supabase。')}let {data:{session}}=await client.auth.getSession();if(session)await enter(session);else showAuth();client.auth.onAuthStateChange((_e,s)=>{if(!s){S.session=S.profile=null;showAuth()}})}
+
+async function init(){
+  if(!configured){
+    showAuth();
+    return authMsg('請先設定 config.js 與 Supabase。');
+  }
+
+  const showRecovery=()=>{
+    showAuth();
+    $('login-form').classList.add('hidden');
+    $('recovery-form').classList.remove('hidden');
+    authMsg('');
+  };
+
+  const {data:{session}}=await client.auth.getSession();
+
+  const recoveryInUrl=
+    new URLSearchParams(window.location.hash.slice(1)).get('type')==='recovery' ||
+    new URLSearchParams(window.location.search).get('type')==='recovery';
+
+  if(recoveryInUrl){
+    showRecovery();
+  }else if(session){
+    await enter(session);
+  }else{
+    showAuth();
+  }
+
+  client.auth.onAuthStateChange((event,s)=>{
+    if(event==='PASSWORD_RECOVERY'){
+      showRecovery();
+      return;
+    }
+    if(!s){
+      S.session=S.profile=null;
+      showAuth();
+    }
+  });
+
+  $('recovery-form').onsubmit=async e=>{
+    e.preventDefault();
+
+    const password=$('recovery-password').value;
+    const confirm=$('recovery-confirm').value;
+
+    if(password!==confirm){
+      return authMsg('兩次輸入的密碼不一致。');
+    }
+
+    const {error}=await client.auth.updateUser({password});
+
+    if(error){
+      return authMsg('密碼更新失敗：'+error.message);
+    }
+
+    await client.rpc('mark_own_password_changed');
+
+    authMsg('密碼已更新，請使用新密碼登入。');
+    await client.auth.signOut();
+
+    $('recovery-form').classList.add('hidden');
+    $('login-form').classList.remove('hidden');
+  };
+}
 $('login-form').onsubmit=async e=>{e.preventDefault();let {data,error}=await client.auth.signInWithPassword({email:$('login-email').value.trim(),password:$('login-password').value});if(error)return authMsg('帳號或密碼錯誤');await enter(data.session)};$('logout-btn').onclick=()=>client?.auth.signOut();
 async function enter(session){S.session=session;let {data:p,error}=await client.from('profiles').select('*').eq('id',session.user.id).single();if(error||!p||!p.active){await client.auth.signOut();return authMsg('帳號不存在或已停用。')}S.profile=p;S.tab=p.role==='manager'?'today':'home';showApp();await refresh();subscribe();render();if(p.must_change_password)setTimeout(()=>changePassword(true),100)}
 function range(){let start=addMonths(new Date(),-1),end=addMonths(new Date(),4);return [iso(start),iso(new Date(end.getFullYear(),end.getMonth(),0))]}
