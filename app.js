@@ -36,7 +36,7 @@ if (
 
   if (error) {
     showAuth();
-    authMsg('密碼重設連結驗證失敗，請重新申請重設郵件。');
+    authMsg('密碼重設驗證失敗：' + error.message);   
     return;
   }
 
