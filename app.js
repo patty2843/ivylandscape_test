@@ -21,11 +21,34 @@ async function init(){
     authMsg('');
   };
 
-  const {data:{session}}=await client.auth.getSession();
 
-  const recoveryInUrl=
-    new URLSearchParams(window.location.hash.slice(1)).get('type')==='recovery' ||
-    new URLSearchParams(window.location.search).get('type')==='recovery';
+const params = new URLSearchParams(window.location.hash.slice(1));
+
+if (
+  params.get('type') === 'recovery' &&
+  params.has('access_token') &&
+  params.has('refresh_token')
+) {
+  const { error } = await client.auth.setSession({
+    access_token: params.get('access_token'),
+    refresh_token: params.get('refresh_token')
+  });
+
+  if (error) {
+    showAuth();
+    authMsg('密碼重設連結驗證失敗，請重新申請重設郵件。');
+    return;
+  }
+
+  // 驗證成功後，清除網址中的敏感資訊。
+  history.replaceState(null, '', window.location.pathname);
+}
+
+const {data:{session}} = await client.auth.getSession();
+
+const recoveryInUrl =
+  params.get('type') === 'recovery' ||
+  new URLSearchParams(window.location.search).get('type') === 'recovery';
 
   if(recoveryInUrl){
     showRecovery();
