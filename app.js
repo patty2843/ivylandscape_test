@@ -125,7 +125,92 @@ function scheduleCard(s,edit=false){return `<div class="card"><div class="row"><
 function mgrSched(){$('app-body').innerHTML=`${monthNav('排班')}<div class="toolbar"><button id="batch" class="btn small primary">＋一次排多人</button><button id="copy-y" class="btn small secondary">複製昨日</button><button id="copy-w" class="btn small secondary">複製上週</button><button id="excel" class="btn small success">Excel 匯出</button></div><div class="card">${calendar((dt,n)=>{let ss=S.schedules.filter(x=>x.work_date===dt);return `<div class="manager-day ${dt===today()?'today':''}" data-dropdate="${dt}"><span class="day-no">${n}</span>${ss.map(s=>`<button class="shift-token" draggable="true" data-id="${s.id}" data-edit="${s.id}">${esc(s.employee?.full_name)}<small>${esc(s.location||'')}</small></button>`).join('')}</div>`})}</div><div class="notice">點班次可修改；桌面瀏覽器也可拖曳到其他日期。手機請用「修改」選日期，穩定度較高。</div>`;bindMonthNav();$('batch').onclick=batchModal;$('copy-y').onclick=()=>copySchedule(1);$('copy-w').onclick=()=>copySchedule(7);$('excel').onclick=exportExcel;document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=e=>{e.stopPropagation();editSchedule(b.dataset.edit)});bindDrag()}
 function bindDrag(){let id=null;document.querySelectorAll('.shift-token').forEach(x=>x.ondragstart=()=>id=x.dataset.id);document.querySelectorAll('[data-dropdate]').forEach(x=>{x.ondragover=e=>e.preventDefault();x.ondrop=async e=>{e.preventDefault();if(!id)return;let s=S.schedules.find(z=>z.id===id),{error}=await client.from('schedules').update({work_date:x.dataset.dropdate}).eq('id',id);if(error)return toast(error.message);await notify('班表異動',`您的班表已改到 ${x.dataset.dropdate}`,[s.employee_id]);toast('班次已移動');await sync()}})}
 function mgrAudit(){let pending=S.leaves.filter(x=>x.status==='pending'),d=viewMonth(),mk=monthKey(d),emps=S.profiles.filter(p=>p.role==='employee'&&p.active);$('app-body').innerHTML=`<div class="page-head"><h2>紀錄</h2></div><div class="section-label">待審核假單 (${pending.length})</div>${pending.map(l=>`<div class="card"><div class="row"><div><b>${esc(l.employee?.full_name)}・${esc(l.leave_type)}</b><div class="meta">${l.leave_date}・${esc(l.reason||'')}</div></div><span class="pill orange">待審核</span></div><div class="actions"><button class="btn small success" data-leave="${l.id}" data-status="approved">同意請假</button><button class="btn small danger" data-leave="${l.id}" data-status="rejected">不同意</button></div></div>`).join('')||'<div class="card empty">目前沒有待審核假單</div>'}<div class="section-label">${mk} 員工出席統計</div>${emps.map(p=>{let n=S.schedules.filter(s=>s.employee_id===p.id&&s.work_date.startsWith(mk)).length;return `<div class="card attendance"><b>${esc(p.full_name)}</b><span>出席總天數 <strong>${n}</strong> 天</span></div>`}).join('')}<div class="section-label">排班異動紀錄</div>${S.audit.map(a=>`<div class="card audit-row"><b>${esc(a.actor?.full_name||'系統')}</b> ${a.action==='update'?'修改':a.action==='insert'?'新增':a.action==='delete'?'刪除':esc(a.action)} ${esc(a.employee?.full_name||'')} 班表<br>${new Date(a.changed_at).toLocaleString('zh-TW')}・${esc(a.work_date||'')}</div>`).join('')||'<div class="card empty">尚無異動紀錄</div>'}`;document.querySelectorAll('[data-leave]').forEach(b=>b.onclick=()=>reviewLeave(b.dataset.leave,b.dataset.status))}
-async function reviewLeave(id,status){let l=S.leaves.find(x=>x.id===id),{error}=await client.from('leave_requests').update({status,reviewed_by:S.profile.id,reviewed_at:new Date().toISOString()}).eq('id',id);if(error)return toast(error.message);await notify(status==='approved'?'請假已同意':'請假未同意',`${l.leave_date} ${l.leave_type}：${status==='approved'?'主管已同意':'主管未同意'}`,[l.employee_id]);toast(status==='approved'?'已同意請假':'已標記未同意');await sync()}
+function escapeHtml(value){
+  return String(value ?? '').replace(/[&<>"']/g, char => ({
+    '&':'&amp;',
+    '<':'&lt;',
+    '>':'&gt;',
+    '"':'&quot;',
+    "'":'&#39;'
+  })[char]);
+}
+  async function reviewLeave(id,status){
+  const l=S.leaves.find(x=>x.id===id);
+  if(!l)return toast('找不到請假申請');
+
+  if(status==='approved'){
+    const {data:affected,error:lookupError}=await client
+      .from('schedules')
+      .select('id,work_date,location,shift_name')
+      .eq('company_id',S.profile.company_id)
+      .eq('employee_id',l.employee_id)
+      .eq('work_date',l.leave_date);
+
+    if(lookupError)
+      return toast('查詢受影響排班失敗：'+lookupError.message);
+
+    const details=(affected||[]).map(s=>
+      '<li>'+[
+        s.work_date,
+        s.location||s.shift_name||'未填工作地點'
+      ].map(escapeHtml).join('｜')+'</li>'
+    ).join('');
+
+    modal('確認核准請假',
+      '<p>核准後將取消這位員工在 '+
+        escapeHtml(l.leave_date)+' 的全部排班。</p>'+
+      (affected.length
+        ?'<ul>'+details+'</ul>'
+        :'<p>當天沒有需要取消的排班。</p>')+
+      '<p>取消的排班會保留在操作紀錄中。</p>'+
+      '<button class="btn primary" id="confirm-approve-leave">'+
+        '確認核准並取消排班</button>'
+    );
+
+    $('confirm-approve-leave').onclick=async()=>{
+      const btn=$('confirm-approve-leave');
+      btn.disabled=true;
+
+      const {data,error}=await client.rpc(
+        'approve_leave_and_cancel_schedules',
+        {p_leave_id:id}
+      );
+
+      if(error){
+        btn.disabled=false;
+        return toast('核准失敗：'+error.message);
+      }
+
+      $('modal-root').innerHTML='';
+      await notify(
+        '請假已同意',
+        l.leave_date+' '+l.leave_type+'：主管已同意',
+        [l.employee_id]
+      );
+      toast('請假已核准，取消 '+data+' 筆排班');
+      await sync();
+    };
+    return;
+  }
+
+  const {error}=await client.from('leave_requests')
+    .update({
+      status,
+      reviewed_by:S.profile.id,
+      reviewed_at:new Date().toISOString()
+    })
+    .eq('id',id);
+
+  if(error)return toast(error.message);
+
+  await notify(
+    '請假未同意',
+    l.leave_date+' '+l.leave_type+'：主管未同意',
+    [l.employee_id]
+  );
+  toast('已標記未同意');
+  await sync();
+}
 function modal(title,body){$('modal-root').innerHTML=`<div class="modal-backdrop"><div class="modal"><div class="page-head"><h3>${title}</h3><button id="mc" class="ghost-btn modal-close">關閉</button></div>${body}</div></div>`;$('mc').onclick=()=>$('modal-root').innerHTML=''}
 function leaveModal(){modal('申請請假',`<form id="lf" class="form-grid"><label>假別<select id="lt"><option>特別休假</option><option>事假</option><option>病假</option></select></label><label>日期<input id="ld" type="date" required></label><label>事由<textarea id="lr"></textarea></label><button class="btn primary">送出</button></form>`);$('lf').onsubmit=async e=>{e.preventDefault();let {error}=await client.from('leave_requests').insert({company_id:S.profile.company_id,employee_id:S.profile.id,leave_type:$('lt').value,leave_date:$('ld').value,reason:$('lr').value,status:'pending'});if(error)return toast(error.message);$('modal-root').innerHTML='';let managers=S.profiles.filter?.(p=>p.role==='manager').map(p=>p.id);await notify('新請假申請',`${S.profile.full_name} 提出 ${$('ld')?.value||''} 請假申請`,managers?.length?managers:undefined,true);toast('假單已送出主管端');await sync()}}
 function batchModal(){let em=S.profiles.filter(p=>p.role==='employee'&&p.active);modal('一次排多人',`<form id="bf" class="form-grid"><div class="check-grid">${em.map(p=>`<label class="check-item"><input type="checkbox" name="emp" value="${p.id}">${esc(p.full_name)}・${esc(p.department||'')}</label>`).join('')}</div><label>日期<input id="bd" type="date" value="${today()}" required></label><label>工作地點<input id="bl" placeholder="可自由輸入，例如：星巴克黎明福科門市"></label><label>工作提醒<textarea id="bt" placeholder="今天需要注意的工作事項"></textarea></label><button class="btn primary">建立班表</button></form>`);$('bf').onsubmit=async e=>{e.preventDefault();let ids=[...document.querySelectorAll('input[name=emp]:checked')].map(x=>x.value);if(!ids.length)return toast('請選員工');let rows=ids.map(id=>({company_id:S.profile.company_id,employee_id:id,work_date:$('bd').value,start_time:'08:00',end_time:'17:00',shift_name:'日班',location:$('bl').value.trim()||null,task_note:$('bt').value.trim()||null,created_by:S.profile.id}));let {error}=await client.from('schedules').insert(rows);if(error)return toast(error.message);let dt=$('bd').value;$('modal-root').innerHTML='';await notify('新班表通知',`${dt} 班表已建立`,ids);toast('班表已建立');await sync()}}
