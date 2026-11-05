@@ -101,7 +101,7 @@ async function refresh(){let [a,b]=range();let qs=[
  client.from('schedules').select('*,employee:profiles!schedules_employee_id_fkey(id,full_name,department)').gte('work_date',a).lte('work_date',b).order('work_date'),
  client.from('leave_requests').select('*,employee:profiles!leave_requests_employee_id_fkey(id,full_name,department)').gte('leave_date',a).lte('leave_date',b).order('created_at',{ascending:false}),
  client.from('work_availability').select('*').gte('work_date',a).lte('work_date',b)
-];if(S.profile.role==='manager'){qs.push(client.from('profiles').select('*').order('active',{ascending:false}).order('full_name'));qs.push(client.from('schedule_audit_logs').select('*,actor:profiles!schedule_audit_logs_changed_by_fkey(full_name),employee:profiles!schedule_audit_logs_employee_id_fkey(full_name)').order('changed_at',{ascending:false}).limit(200))}
+];if(S.profile.role==='manager'){qs.push(client.from('profiles').select('*').order('active',{ascending:false}).order('full_name'));qs.push(client.from('schedule_audit_logs').select('*,actor:profiles!schedule_audit_logs_changed_by_fkey(full_name)').order('changed_at',{ascending:false}).limit(200))}
 let [s,l,av,p,aud]=await Promise.all(qs);S.schedules=s.data||[];S.leaves=l.data||[];S.availability=av.data||[];if(p)S.profiles=p.data||[];if(aud)S.audit=aud.data||[]}
 function subscribe(){if(S.channel)client.removeChannel(S.channel);S.channel=client.channel('ivy-live-'+S.profile.company_id)
  .on('postgres_changes',{event:'*',schema:'public',table:'schedules'},sync)
